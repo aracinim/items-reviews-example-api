@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Header
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 from pathlib import Path
 import json
 
@@ -36,6 +36,28 @@ class ReviewsResponse(BaseModel):
     helpful_reviews: List[Any] = Field(default_factory=list)
     attributes: List[Any] = Field(default_factory=list)
 
+# --- Modelos para el flujo de Agentes LLM ---
+
+class Publication(BaseModel):
+    item_id: str
+    seller_id: int
+    title: str
+    price: float
+    stock_quantity: int
+    status: Literal["active", "paused", "closed"]
+
+class PublicationUpdate(BaseModel):
+    status: Optional[Literal["active", "paused", "closed"]] = None
+
+class ReviewSummary(BaseModel):
+    rating_average: float
+    review_count: int
+    reviews: List[Review]
+
+class BulkActionResponse(BaseModel):
+    message: str
+    updated_count: int
+
 # -----------------------
 # Config de comportamiento
 # -----------------------
@@ -43,82 +65,10 @@ class ReviewsResponse(BaseModel):
 # Si quieres calcularlos realmente, pon False.
 FORCE_EMPTY_RATING_LEVELS = True
 
-# -----------------------
-# Datos por defecto (usa MLB...).
-# Estructura: { item_id: [reviews...] }
-# -----------------------
-DEFAULT_REVIEWS: Dict[str, List[Dict[str, Any]]] = {
-    "MLB1625519814": [
-        {
-            "id": 43083650,
-            "date_created": "2019-06-08T14:12:29Z",
-            "status": "published",
-            "title": "Iincreíble, lo amo",
-            "content": "Impresionante, muy satisfecha con el samsung s9...",
-            "rate": 5,
-            "valorization": 0,
-            "likes": 0,
-            "dislikes": 0,
-            "reviewer_id": 0,
-            "buying_date": "2019-04-12T04:00:00Z",
-            "relevance": 71,
-            "forbidden_words": 0,
-            "attributes": []
-        },
-        {
-            "id": 43083651,
-            "date_created": "2019-06-10T09:05:00Z",
-            "status": "published",
-            "title": "Muy satisfecho",
-            "content": "La batería dura bien y la cámara es genial.",
-            "rate": 5,
-            "valorization": 1,
-            "likes": 1,
-            "dislikes": 0,
-            "reviewer_id": 10300,
-            "buying_date": "2019-05-20T04:00:00Z",
-            "relevance": 10,
-            "forbidden_words": 0,
-            "attributes": []
-        },
-        {
-            "id": 43083652,
-            "date_created": "2019-06-12T20:00:00Z",
-            "status": "published",
-            "title": "Podría mejorar",
-            "content": "Después de una actualización, falló la alarma.",
-            "rate": 3,
-            "valorization": 0,
-            "likes": 0,
-            "dislikes": 1,
-            "reviewer_id": 10301,
-            "buying_date": "2019-05-10T04:00:00Z",
-            "relevance": 5,
-            "forbidden_words": 0,
-            "attributes": []
-        }
-    ],
-    "MLB1625519801": [
-        {
-            "id": 43083524,
-            "date_created": "2019-07-17T23:11:29Z",
-            "status": "published",
-            "title": "Perfecto¡¡¡",
-            "content": "Excelente producto, recomendable 100%.",
-            "rate": 5,
-            "valorization": 2,
-            "likes": 2,
-            "dislikes": 0,
-            "reviewer_id": 0,
-            "buying_date": "2019-06-22T04:00:00Z",
-            "relevance": 4,
-            "forbidden_words": 0,
-            "attributes": []
-        }
-    ]
-}
+DEFAULT_REVIEWS = {} # Se cargará desde data.json
 
 DATA_PATH = Path(__file__).with_name("data.json")
+PUBLICATIONS_PATH = Path(__file__).with_name("publications.json")
 
 def load_reviews() -> Dict[str, List[Dict[str, Any]]]:
     """
@@ -132,11 +82,32 @@ def load_reviews() -> Dict[str, List[Dict[str, Any]]]:
         with DATA_PATH.open("r", encoding="utf-8") as f:
             data = json.load(f)
             if isinstance(data, dict):
-                return data
+                return data # type: ignore
     return DEFAULT_REVIEWS
+
+def load_publications() -> Dict[str, Dict[str, Any]]:
+    """Carga las publicaciones desde publications.json."""
+    if PUBLICATIONS_PATH.exists():
+        with PUBLICATIONS_PATH.open("r", encoding="utf-8") as f:
+            try:
+                return json.load(f)
+            except json.JSONDecodeError:
+                return {}
+    return {}
+
+def save_publications(publications_data: Dict[str, Any]):
+    """Guarda el diccionario de publicaciones de vuelta en el archivo JSON."""
+    with PUBLICATIONS_PATH.open("w", encoding="utf-8") as f:
+        json.dump(publications_data, f, indent=2)
 
 # Cache simple en memoria
 REVIEWS_BY_ITEM = load_reviews()
+PUBLICATIONS_BY_ITEM = load_publications()
+
+@app.on_event("shutdown")
+def on_shutdown():
+    """Al cerrar la app, guarda el estado actual de las publicaciones."""
+    save_publications(PUBLICATIONS_BY_ITEM)
 
 def build_rating_levels(reviews: List[Dict[str, Any]]) -> Dict[str, int]:
     levels = {"one_star": 0, "two_star": 0, "three_star": 0, "four_star": 0, "five_star": 0}
@@ -198,4 +169,71 @@ def get_reviews(
         rating_levels=rating_levels,
         helpful_reviews=[],   # lista vacía como tu ejemplo
         attributes=[],        # lista vacía como tu ejemplo
+    )
+
+# --- Endpoints Atómicos para Agentes LLM ---
+
+@app.get("/sellers/{seller_id}/publications", response_model=List[Publication], summary="Obtener publicaciones de un vendedor")
+def get_seller_publications(seller_id: int):
+    """
+    Herramienta para obtener todas las publicaciones de un `seller_id`.
+    Punto de partida para el flujo de decisión del agente.
+    """
+    seller_pubs = [
+        pub for pub in PUBLICATIONS_BY_ITEM.values()
+        if pub.get("seller_id") == seller_id
+    ]
+    return seller_pubs
+
+@app.get("/items/{item_id}/reviews/summary", response_model=ReviewSummary, summary="Obtener datos y objetos de reseñas de un item")
+def get_reviews_summary(item_id: str):
+    """
+    Herramienta de consulta que devuelve datos agregados y la lista completa
+    de reseñas. Diseñado para que el agente tome decisiones basadas en
+    métricas y/o en el contenido de las reseñas.
+    """
+    key = item_id.upper()
+    reviews = REVIEWS_BY_ITEM.get(key)
+    if reviews is None:
+        # Si un item no tiene reseñas, no es un error, devolvemos un resumen vacío.
+        return ReviewSummary(rating_average=0.0, review_count=0, reviews=[])
+
+    return ReviewSummary(
+        rating_average=compute_average(reviews),
+        review_count=len(reviews),
+        reviews=[Review(**r) for r in reviews]
+    )
+
+@app.patch("/publications/{item_id}", response_model=Publication, summary="Actualizar el estado de una publicación")
+def update_publication_status(item_id: str, update_data: PublicationUpdate):
+    """
+    Herramienta de acción para que el agente modifique una publicación.
+    Principalmente usado para cambiar el `status` (ej. a 'paused').
+    """
+    key = item_id.upper()
+    publication = PUBLICATIONS_BY_ITEM.get(key)
+    if not publication:
+        raise HTTPException(status_code=404, detail=f"Publicación '{item_id}' no encontrada.")
+
+    if update_data.status is not None:
+        publication["status"] = update_data.status
+
+    # Devolvemos el objeto completo actualizado
+    return publication
+
+@app.post("/publications/activate-all", response_model=BulkActionResponse, summary="Activar todas las publicaciones")
+def activate_all_publications():
+    """
+    Herramienta de acción masiva para establecer el estado de todas las
+    publicaciones a 'active'. Útil para reinicios o pruebas.
+    """
+    updated_count = 0
+    for pub_id in PUBLICATIONS_BY_ITEM:
+        if PUBLICATIONS_BY_ITEM[pub_id].get("status") != "active":
+            PUBLICATIONS_BY_ITEM[pub_id]["status"] = "active"
+            updated_count += 1
+
+    return BulkActionResponse(
+        message="Todas las publicaciones aplicables han sido activadas.",
+        updated_count=updated_count
     )

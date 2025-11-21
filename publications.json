@@ -1,0 +1,56 @@
+{
+  "MLB1625519814": {
+    "item_id": "MLB1625519814",
+    "seller_id": 10300,
+    "title": "Samsung S9 64 Gb Negro Medianoche 4 Gb Ram",
+    "price": 15999.99,
+    "stock_quantity": 15,
+    "seller_reputation": 4.8,
+    "status": "paused"
+  },
+  "MLB1625519801": {
+    "item_id": "MLB1625519801",
+    "seller_id": 10300,
+    "title": "Motorola G8 Plus 64gb Azul 4 Ram",
+    "price": 12500.0,
+    "stock_quantity": 8,
+    "seller_reputation": 4.8,
+    "status": "active"
+  },
+  "MLB987654321": {
+    "item_id": "MLB987654321",
+    "seller_id": 10301,
+    "title": "iPhone 11 128gb Blanco",
+    "price": 28990.5,
+    "stock_quantity": 5,
+    "seller_reputation": 4.9,
+    "status": "active"
+  },
+  "MLB1625519802": {
+    "item_id": "MLB1625519802",
+    "seller_id": 10301,
+    "title": "Smart TV 50 pulgadas 4K",
+    "price": 21500.0,
+    "stock_quantity": 10,
+    "seller_reputation": 4.9,
+    "status": "active"
+  },
+  "MLB1625519807": {
+    "item_id": "MLB1625519807",
+    "seller_id": 10302,
+    "title": "Laptop Gamer Core i7 16GB RAM",
+    "price": 45000.75,
+    "stock_quantity": 3,
+    "seller_reputation": 5.0,
+    "status": "paused"
+  },
+  "MLB1625519812": {
+    "item_id": "MLB1625519812",
+    "seller_id": 10301,
+    "title": "Producto Gen\u00e9rico que no convence",
+    "price": 999.0,
+    "stock_quantity": 20,
+    "seller_reputation": 3.1,
+    "status": "active"
+  }
+}
